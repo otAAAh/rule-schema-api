@@ -61,7 +61,9 @@ curl -u cmkadmin:$PASSWORD \
 | `inventory` | `inv_parameters:` |
 | `general` | no prefix (groups, tags, ...) |
 
-An unknown prefix is reported as the prefix itself.
+On 2.5, discovery rulesets have no `discovery_parameters:` prefix (it came with
+3.0); a ruleset listed in the Setup group `checkparams/discovery` is `discovery`
+on both. An unknown prefix is reported as the prefix itself.
 
 ## How it works
 

@@ -127,11 +127,20 @@ GENERAL_KIND = "general"
 KNOWN_KINDS = (*KIND_BY_PREFIX.values(), GENERAL_KIND)
 
 
-def ruleset_kind(name: str) -> str:
+# Discovery rulesets got their "discovery_parameters:" prefix only in 3.0; on
+# 2.5 they have plain names ("ntp_discovery", "inventory_processes_rules", ...)
+# and are recognized by the Setup group they are listed in.
+DISCOVERY_GROUP = "checkparams/discovery"
+
+
+def ruleset_kind(name: str, group: str = "") -> str:
+    """What the ruleset is for: from its name prefix, else from its Setup group."""
     prefix, sep, _ = name.partition(":")
-    if not sep:
-        return GENERAL_KIND
-    return KIND_BY_PREFIX.get(prefix, prefix)
+    if sep and prefix in KIND_BY_PREFIX:
+        return KIND_BY_PREFIX[prefix]
+    if group == DISCOVERY_GROUP:
+        return KIND_BY_PREFIX["discovery_parameters"]
+    return prefix if sep else GENERAL_KIND
 
 
 def _rulespecs(include_deprecated: bool, kinds: frozenset[str] | None) -> list[Rulespec]:
@@ -141,7 +150,7 @@ def _rulespecs(include_deprecated: bool, kinds: frozenset[str] | None) -> list[R
         rulespec_registry[name]
         for name in rulespec_registry.keys()  # noqa: SIM118 - a Registry, not a dict
         if (include_deprecated or not rulespec_registry[name].is_deprecated)
-        and (kinds is None or ruleset_kind(name) in kinds)
+        and (kinds is None or ruleset_kind(name, rulespec_registry[name].group_name) in kinds)
         and _visible(name)
     ]
 
@@ -189,7 +198,7 @@ def list_rulesets(
     for rulespec, en, local in named:
         entry: dict[str, Json] = {
             "ruleset_name": rulespec.name,
-            "kind": ruleset_kind(rulespec.name),
+            "kind": ruleset_kind(rulespec.name, rulespec.group_name),
             "display_name_en": en["title"],
             "group": rulespec.group_name,
             "group_display_name_en": en["group_title"],
@@ -227,7 +236,7 @@ def ruleset_schema(name: str, *, lang: str = ENGLISH) -> dict[str, Json]:
         item_spec = _safe_item_spec(rulespec)
         result: dict[str, Json] = {
             "ruleset_name": name,
-            "kind": ruleset_kind(name),
+            "kind": ruleset_kind(name, rulespec.group_name),
             "display_name_en": en["title"],
             "help": _text(_safe_str(lambda: rulespec.help)),
             "match_type": rulespec.match_type,

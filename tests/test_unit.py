@@ -38,6 +38,16 @@ class TestRulesetKind(unittest.TestCase):
 
     def test_no_prefix_is_general(self) -> None:
         self.assertEqual(ruleset_kind("host_groups"), "general")
+        self.assertEqual(ruleset_kind("host_groups", "monconf/various"), "general")
+
+    def test_discovery_group_without_prefix_is_discovery(self) -> None:
+        # 2.5 names its discovery rulesets without the 3.0 prefix.
+        self.assertEqual(ruleset_kind("ntp_discovery", "checkparams/discovery"), "discovery")
+
+    def test_known_prefix_wins_over_group(self) -> None:
+        self.assertEqual(
+            ruleset_kind("checkgroup_parameters:x", "checkparams/discovery"), "service_parameters"
+        )
 
     def test_unknown_prefix_is_reported_as_itself(self) -> None:
         self.assertEqual(ruleset_kind("some_new_prefix:x"), "some_new_prefix")
