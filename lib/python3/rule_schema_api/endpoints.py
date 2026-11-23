@@ -6,8 +6,10 @@
     GET /objects/rule_schema/{ruleset_name}
 
 They live in the REST API's endpoint registry next to the built-in ones, so
-they get the same authentication (automation user, session cookie), the same
-permission check, and a "Rule schemas" section in the API documentation.
+they get the same authentication (automation user, session cookie) and the
+same permission check. They do NOT appear in the site's API documentation:
+that is a spec file generated when Checkmk is built
+(``share/doc/check_mk/rest-api/spec``), not built from the live registry.
 
 How an extension package gets there: on startup the GUI registers the built-in
 endpoints, then loads the local GUI plugins (this package); the REST app builds

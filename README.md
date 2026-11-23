@@ -11,8 +11,11 @@ lists every ruleset and describes the shape of its value.
 ## Endpoints
 
 Both live under `/<site>/check_mk/api/1.0`, use the normal REST API
-authentication, and need the `wato.use` + `wato.rulesets` permissions. They
-appear in the API documentation as **Rule schemas**.
+authentication, and need the `wato.use` + `wato.rulesets` permissions.
+
+They do **not** show up in the site's API documentation (Swagger/ReDoc): that
+is a spec file generated when Checkmk is built, not from the endpoints
+registered at runtime. This README is their documentation.
 
 | Method | Path | Returns |
 |---|---|---|
