@@ -73,10 +73,17 @@ class TestAgainstCheckmk(unittest.TestCase):
         os.environ.setdefault("OMD_SITE", "rsetest")
         from cmk.ccc.version import edition
         from cmk.gui import main_modules
-        from cmk.gui.wsgi.app import gui_context
+
+        try:  # 3.0
+            from cmk.gui.wsgi.app import gui_context
+        except ImportError:  # 2.5
+            from cmk.gui.utils.script_helpers import gui_context
         from cmk.utils import paths
 
-        main_modules.register(edition(paths.omd_root), debug=False)
+        try:  # 3.0
+            main_modules.register(edition(paths.omd_root), debug=False)
+        except TypeError:  # 2.5 has no 'debug' argument
+            main_modules.register(edition(paths.omd_root))
         cls._context = gui_context()
         cls._context.__enter__()
 

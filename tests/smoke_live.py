@@ -52,11 +52,20 @@ class Site:
         return status, payload
 
     def set_language(self, language: str) -> str:
-        """Set the user's GUI language; return the previous one."""
+        """Set the user's GUI language; return the previous one.
+
+        The user record's ETag changes with every request of that user (it
+        tracks the last activity), so a PUT can lose the race against our own
+        GET: retry on 412 with a fresh ETag.
+        """
         path = f"/objects/user_config/{self.user}"
-        _, payload, etag = self.request(path)
-        previous = str(_dig(payload, "extensions", "language") or "en")
-        status, _, _ = self.request(path, method="PUT", body={"language": language}, etag=etag)
+        status = 0
+        for _ in range(5):
+            _, payload, etag = self.request(path)
+            previous = str(_dig(payload, "extensions", "language") or "en")
+            status, _, _ = self.request(path, method="PUT", body={"language": language}, etag=etag)
+            if status != 412:
+                break
         _expect(status == 200, f"setting language {language!r} returned HTTP {status}")
         return previous
 
@@ -104,7 +113,8 @@ def check_collection(site: Site) -> list[dict[str, object]]:
 def check_kind_filter(site: Site, entries: list[dict[str, object]]) -> None:
     wanted = {"service_parameters", "discovery"}
     filtered = _entries(site, "?kind=service_parameters&kind=discovery")
-    _expect({e["kind"] for e in filtered} == wanted, "kind filter returned other kinds")
+    returned = {e["kind"] for e in filtered}
+    _expect(returned <= wanted, f"kind filter returned other kinds: {returned - wanted}")
     expected = sum(1 for e in entries if e["kind"] in wanted)
     _expect(len(filtered) == expected, f"kind filter: {len(filtered)} != {expected}")
     _expect(_entries(site, "?kind=no_such_kind") == [], "unknown kind is not empty")
