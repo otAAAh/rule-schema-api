@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-2.0-only
+[project]
+name = "checkmk-rule-schema-explorer"
+version = "0.1.0"
+description = "REST API endpoints listing every Setup ruleset and the schema of its rule value (value_raw), plus a Setup page to browse them"
+requires-python = ">=3.12"
+license = "GPL-2.0-only"
+
+# Metadata baked into the MKP manifest by scripts/build_mkp.py
+[tool.mkp]
+package_name = "rule_schema_explorer"
+title = "Rule schema explorer"
+author = "Benjamin Knapp"
+download_url = "https://github.com/otAAAh/checkmk-rule-schema-explorer"
+# Uses internal GUI/REST APIs that exist from 2.5 on.
+min_required = "2.5.0"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
