@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 [project]
 name = "rule-schema-api"
-version = "0.3.0"
+version = "0.1.0"
 description = "REST API endpoints listing every Setup ruleset and the schema of its rule value (value_raw)"
 requires-python = ">=3.12"
 license = "GPL-2.0-only"

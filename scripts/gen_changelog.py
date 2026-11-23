@@ -11,7 +11,7 @@ Features / Fixes / Other, and renders Markdown.
 Two modes, both stdlib-only so the repo stays self-contained:
 
   * ``gen_changelog.py``                  -> write the full CHANGELOG.md
-  * ``gen_changelog.py --version 0.3.0``  -> print just that version's section
+  * ``gen_changelog.py --version 0.1.0``  -> print just that version's section
                                              (used as the GitHub Release body)
 
 With ``--version`` the leading ``v`` is optional. Use ``--stdout`` to print the
@@ -222,8 +222,10 @@ def _sections() -> list[tuple[str, str | None, list[tuple[str, str]]]]:
                 result.append(("Unreleased", None, unreleased))
             result.append((pending, _tag_date(bump), _commits(f"{tags[-1]}..{bump}")))
     else:
-        # No tags yet: everything is unreleased under the pyproject version.
-        return [(_project_version(), None, _commits("HEAD"))]
+        # No tags yet: everything is unreleased until the first release is
+        # tagged. ("Unreleased", not the pyproject version: the CI staleness
+        # check skips it, and a commit can never list itself in the file.)
+        return [("Unreleased", None, _commits("HEAD"))]
 
     for i in range(len(tags) - 1, -1, -1):
         tag = tags[i]
