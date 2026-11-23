@@ -1,0 +1,211 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel an in-progress run when the same ref is pushed again (e.g. a new commit
+# on a PR), so superseded runs don't pile up and contend for runners.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Everything that needs no Checkmk: format, lint, the MKP build, the unit
+  # tests and the changelog. Keep the paths in lock-step with RUFF_SOURCES in
+  # the Makefile, so `make lint` cannot pass while CI fails.
+  lint-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history + tags so the changelog check can diff versions
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13" # the oldest supported Checkmk (2.5) runs 3.13
+      - run: pip install -r requirements-dev.txt
+      - name: Format check
+        run: ruff format --check gui lib scripts tests
+      - name: Lint
+        run: ruff check gui lib scripts tests
+      - name: Build the MKP (stdlib only)
+        run: python3 scripts/build_mkp.py
+      - name: Unit tests (no Checkmk needed)
+        run: python3 -m unittest discover -s tests -p "test_unit*.py" -v
+      - name: Changelog is current (released sections)
+        run: |
+          python3 scripts/gen_changelog.py --stdout > /tmp/fresh-changelog.md
+          # Compare from the first version header onward, ignoring the volatile
+          # [Unreleased] section and the preamble. Released sections are derived
+          # purely from tags, so they should never drift from the committed file.
+          sed -n '/^## \[[0-9]/,$p' CHANGELOG.md > /tmp/committed-released.md
+          sed -n '/^## \[[0-9]/,$p' /tmp/fresh-changelog.md > /tmp/fresh-released.md
+          if ! diff -u /tmp/committed-released.md /tmp/fresh-released.md; then
+            echo "::error::CHANGELOG.md released sections are stale — run 'make changelog' and commit."
+            exit 1
+          fi
+
+  # The package needs Checkmk 2.5+, and its code branches between 2.5 and 3.0
+  # (i18n.localize, the permission module, the registries' signatures), so both
+  # lines are exercised. From 2.5 on, the free edition is published as
+  # checkmk/check-mk-community (check-mk-raw stops at 2.4).
+  #
+  # Each line is resolved at run time: a released line carries a floating
+  # '<line>-latest', an in-development one only dated dailies that are pruned.
+  # A line with no image is skipped with a notice; if NOTHING resolves the job
+  # fails (a green run that tested nothing would be worse than a red one), and
+  # an image older than 120 days is flagged, since its coverage is that old too.
+  images:
+    runs-on: ubuntu-latest
+    outputs:
+      list: ${{ steps.images.outputs.list }}
+      newest: ${{ steps.images.outputs.newest }}
+    steps:
+      - name: Resolve the Checkmk images to test against
+        id: images
+        run: |
+          set -uo pipefail
+          repo=checkmk/check-mk-community
+          newest() {
+            curl -fsSL "https://hub.docker.com/v2/repositories/$repo/tags/?page_size=100&ordering=last_updated&name=$1" \
+              | python3 -c "import sys, json; p='$1'; t=[x['name'] for x in json.load(sys.stdin)['results'] if x['name'].startswith(p)]; l=[x for x in t if x.endswith('-latest')]; d=sorted(x for x in t if x.startswith(p+'-2')); print(l[0] if l else (d[-1] if d else ''))"
+          }
+          age_days() {
+            d="${1##*-}"
+            case "$d" in
+              [0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9])
+                echo $(( ( $(date +%s) - $(date -d "${d//./-}" +%s) ) / 86400 )) ;;
+            esac
+          }
+          images=""
+          last=""
+          for line in 2.5.0 3.0.0; do
+            tag="$(newest "$line" || true)"
+            if [ -z "$tag" ]; then
+              echo "::notice::no public $repo image for $line yet - that line is not tested"
+              continue
+            fi
+            images="$images $repo:$tag"
+            last="$repo:$tag"
+            age="$(age_days "$tag")"
+            if [ -n "$age" ] && [ "$age" -gt 120 ]; then
+              echo "::warning::$line resolves to $tag, $age days old. Its coverage is that old too."
+            else
+              echo "$line -> $tag${age:+ ($age days old)}"
+            fi
+          done
+          if [ -z "$images" ]; then
+            echo "::error::no Checkmk image resolved for any release line - refusing to report a pass that tested nothing"
+            exit 1
+          fi
+          echo "list=$images" >> "$GITHUB_OUTPUT"
+          echo "newest=$last" >> "$GITHUB_OUTPUT"
+          echo "Testing against:$images"
+
+  # test_site.py loads the whole GUI of the image's Checkmk (in a throwaway site
+  # directory) and walks every ruleset, in English and German.
+  test:
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run the site tests inside each Checkmk image
+        run: |
+          set -uo pipefail
+          rc=0
+          for img in ${{ needs.images.outputs.list }}; do
+            echo "::group::$img"
+            docker run --rm --entrypoint bash -v "$PWD:/w" -w /w "$img" -c '
+              set -e
+              SITE_PY="$(ls /omd/versions/*/bin/python3 | head -1)"
+              "$SITE_PY" --version
+              "$SITE_PY" -m unittest discover -s tests -p "test_*.py" -v
+            ' || { echo "::error::tests failed on $img"; rc=1; }
+            echo "::endgroup::"
+          done
+          exit $rc
+
+  # mypy with Checkmk's own settings (pyproject.toml), against the newest
+  # image's cmk sources. Installed Checkmk has no py.typed, so its sources are
+  # exposed through a symlink, as `make typecheck` does locally.
+  typecheck:
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: mypy against ${{ needs.images.outputs.newest }}
+        run: |
+          docker run --rm --entrypoint bash -v "$PWD:/w" -w /w "${{ needs.images.outputs.newest }}" -c '
+            set -e
+            VERSION_DIR="$(dirname "$(dirname "$(ls /omd/versions/*/bin/python3 | head -1)")")"
+            SITE_PY="$VERSION_DIR/bin/python3"
+            MYPY_VERSION="$(sed -n "s/^mypy==//p" requirements-dev.txt)"
+            mkdir -p /tmp/cmksrc
+            ln -sfn "$(ls -d "$VERSION_DIR"/lib/python3*/site-packages/cmk)" /tmp/cmksrc/cmk
+            "$SITE_PY" -m pip install -q --disable-pip-version-check --target /tmp/tools "mypy==$MYPY_VERSION"
+            MYPYPATH=/tmp/cmksrc PYTHONPATH=/tmp/tools "$SITE_PY" -m mypy --cache-dir /tmp/mypy-cache \
+              lib/python3/rule_schema_api gui/wato/rule_schema_api.py scripts
+          '
+
+  # The package installed into a real running site, called over HTTP: the
+  # collection, the kind filter, one schema, the 404, German names - and on the
+  # newest line every ruleset's schema.
+  smoke:
+    needs: images
+    runs-on: ubuntu-latest
+    env:
+      CMK_PASSWORD: "S3cure_cmk_smoke_pw"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the MKP
+        id: build
+        run: |
+          python3 scripts/build_mkp.py
+          version="$(python3 -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Install and call the endpoints on each Checkmk site
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          NEWEST: ${{ needs.images.outputs.newest }}
+        run: |
+          set -uo pipefail
+          rc=0
+          for img in ${{ needs.images.outputs.list }}; do
+            echo "::group::$img"
+            docker rm -f cmk >/dev/null 2>&1 || true
+            docker run -d --name cmk -p 5000:5000 -e CMK_PASSWORD="$CMK_PASSWORD" "$img" >/dev/null
+            wait_for_site() {
+              for _ in $(seq 1 60); do
+                code="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/cmk/check_mk/login.py || true)"
+                [ "$code" = "200" ] && return 0
+                sleep 3
+              done
+              return 1
+            }
+            if ! wait_for_site; then
+              echo "::error::site did not come up for $img"
+              docker logs cmk 2>&1 | tail -50
+              docker rm -f cmk >/dev/null 2>&1 || true
+              rc=1; echo "::endgroup::"; continue
+            fi
+            docker cp "rule_schema_api-$VERSION.mkp" cmk:/tmp/pkg.mkp
+            docker exec cmk su -l cmk -c "mkp add /tmp/pkg.mkp && mkp enable rule_schema_api $VERSION && omd restart apache"
+            wait_for_site || true
+            extra=""
+            [ "$img" = "$NEWEST" ] && extra="--all"
+            if python3 tests/smoke_live.py http://localhost:5000/cmk --password "$CMK_PASSWORD" --language de $extra; then
+              echo "smoke OK on $img"
+            else
+              echo "::error::smoke failed on $img"
+              docker exec cmk bash -c 'tail -50 /omd/sites/cmk/var/log/web.log' || true
+              rc=1
+            fi
+            docker rm -f cmk >/dev/null 2>&1 || true
+            echo "::endgroup::"
+          done
+          exit $rc

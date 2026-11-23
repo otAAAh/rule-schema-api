@@ -16,7 +16,6 @@ Modules:
 """
 
 
-
 def register() -> None:
     """Add the endpoints to the REST API (imports Checkmk, so only on call)."""
     from .endpoints import register as register_endpoints

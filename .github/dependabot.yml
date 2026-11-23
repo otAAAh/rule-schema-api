@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Keep CI/release action pins and Python tooling current. Dependabot opens PRs
+# that update the pinned commit SHAs (and their `# vX` comment) automatically.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # The dev/CI tooling pins in requirements-dev.txt (ruff, mypy).
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps"

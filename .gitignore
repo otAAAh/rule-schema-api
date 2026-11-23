@@ -1,4 +1,41 @@
-__pycache__/
+# Editor / swap files
+.*.swp
+*~
+*kate-swp
+*.iml
+
+# OS
+.DS_Store
+.directory
+
+# IDEs
+.idea/
+.vscode/*
+*.code-workspace
+**/launch.json
+.history/
+
+# Python
+.cache
 *.pyc
+__pycache__/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.python-version
+
+# Virtualenv
+/.venv/
+
+# Build artifacts (MKP package output)
 *.mkp
-.venv/
+
+# mypy's view of an installed Checkmk's sources (see Makefile: typecheck)
+/.cmksrc/
+
+# AI agent local config
+CLAUDE.md
+/.claude/settings.local.json

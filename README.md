@@ -1,6 +1,11 @@
 <!-- SPDX-License-Identifier: GPL-2.0-only -->
 # rule-schema-api
 
+[![CI](https://github.com/otAAAh/rule-schema-api/actions/workflows/ci.yml/badge.svg)](https://github.com/otAAAh/rule-schema-api/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/otAAAh/rule-schema-api/actions/workflows/codeql.yml/badge.svg)](https://github.com/otAAAh/rule-schema-api/actions/workflows/codeql.yml)
+[![Checkmk 2.5+](https://img.shields.io/badge/Checkmk-2.5%2B-15d1a0?logo=checkmk&logoColor=white)](#build--install)
+[![License: GPL v2](https://img.shields.io/badge/License-GPLv2-blue.svg)](LICENSE)
+
 A Checkmk extension package (MKP, **Checkmk 2.5+**) that adds two endpoints to
 the site's own REST API. API only - no GUI.
 
@@ -93,22 +98,19 @@ normal package on the site's `sys.path`.
 
 ## Development
 
-Lint, format and type settings are Checkmk's own (see `pyproject.toml`).
+See [CONTRIBUTING.md](CONTRIBUTING.md). In short — lint, format and type
+settings are Checkmk's own (`pyproject.toml`):
 
 ```sh
-ruff format gui lib scripts tests && ruff check gui lib scripts tests
-# mypy against an installed Checkmk's code (it has no py.typed, so expose its
-# sources through a symlink):
-mkdir -p /tmp/cmksrc && ln -sfn /omd/versions/<version>/lib/python3*/site-packages/cmk /tmp/cmksrc/cmk
-MYPYPATH=/tmp/cmksrc mypy --python-executable /omd/versions/<version>/bin/python3 \
-    lib/python3/rule_schema_api gui/wato/rule_schema_api.py scripts/build_mkp.py
-
-python3 -m unittest discover -s tests -p "test_unit*.py"     # no Checkmk needed
-/omd/versions/<version>/bin/python3 -m unittest discover -s tests -p "test_site*.py"
+pip install -r requirements-dev.txt
+make lint          # ruff format --check + ruff check
+make typecheck     # mypy against an installed Checkmk's sources
+make test          # unit tests + site tests (an installed Checkmk, no site needed)
+python3 tests/smoke_live.py http://localhost/mysite --password ... --all   # a running site
 ```
 
-`test_site*.py` loads the whole GUI of an installed Checkmk version (in a
-throwaway site directory, so it needs no site user) and walks every ruleset.
+CI (`.github/workflows/ci.yml`) runs all of it against the newest Checkmk 2.5
+and 3.0 community images, including installing the MKP into a running site.
 
 ## Build & install
 

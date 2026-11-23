@@ -1,0 +1,6 @@
+# Development / CI tooling, pinned for reproducibility and parity with local dev.
+# Kept in a requirements file (not an inline `pip install`) so Dependabot can see
+# and bump these pins. The runtime (cmk.*) comes from the Checkmk site; mypy
+# reads an installed Checkmk's sources (see the Makefile's typecheck target).
+ruff==0.17.5
+mypy==2.4.1

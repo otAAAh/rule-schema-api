@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: 🐞 Bug report
+description: An endpoint returns an error, a wrong schema, or a schema that does not match what the rules API accepts.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill in as much as you can — it makes
+        reproduction far faster. **Redact any secrets** (automation secrets,
+        passwords, internal hostnames) from commands and output.
+
+        For usage questions, please use
+        [Discussions → Q&A](https://github.com/otAAAh/rule-schema-api/discussions/categories/q-a)
+        instead. For security problems, see
+        [SECURITY.md](https://github.com/otAAAh/rule-schema-api/blob/main/SECURITY.md).
+  - type: checkboxes
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
+        - label: I reproduced this against the latest release (or `main`).
+          required: true
+  - type: input
+    id: cmk-version
+    attributes:
+      label: Checkmk version and edition
+      placeholder: "e.g. 2.5.0p3 (Community / Pro / Ultimate)"
+    validations:
+      required: true
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      description: The version of the rule_schema_api MKP (Setup → Extension packages, or the .mkp filename).
+      placeholder: "e.g. 0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: ruleset
+    attributes:
+      label: Ruleset name
+      description: The `ruleset_name` the problem is about, if any.
+      placeholder: "e.g. checkgroup_parameters:filesystem"
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The request you sent (redacted), e.g. the curl command.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Response / error
+      description: The (relevant part of the) response, an HTTP error, or a crash report / traceback from var/log/web.log.
+      render: text
