@@ -1,23 +1,94 @@
 # SPDX-License-Identifier: GPL-2.0-only
 [project]
-name = "checkmk-rule-schema-explorer"
-version = "0.2.0"
+name = "rule-schema-api"
+version = "0.3.0"
 description = "REST API endpoints listing every Setup ruleset and the schema of its rule value (value_raw)"
 requires-python = ">=3.12"
 license = "GPL-2.0-only"
 
 # Metadata baked into the MKP manifest by scripts/build_mkp.py
 [tool.mkp]
-package_name = "rule_schema_explorer"
-title = "Rule schema explorer"
+package_name = "rule_schema_api"
+title = "Rule schema API"
 author = "Benjamin Knapp"
-download_url = "https://github.com/otAAAh/checkmk-rule-schema-explorer"
+download_url = "https://github.com/otAAAh/rule-schema-api"
 # Uses internal GUI/REST APIs that exist from 2.5 on.
 min_required = "2.5.0"
 
+# Lint, format and type settings: Checkmk's own (github.com/Checkmk/checkmk
+# pyproject.toml), with the Python target of the oldest supported release
+# (2.5 = 3.13) instead of master's, and without its repo-specific
+# banned-import list.
 [tool.ruff]
+target-version = "py313"
 line-length = 100
-target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+preview = true
+explicit-preview-rules = true
+select = [
+    "A", "ARG",
+    "B005", "B006", "B012", "B014", "B017", "B019", "B020", "B023", "B024", "B027",
+    "B031", "B033", "B034", "B035", "B039",
+    "C4", "C90", "E", "F", "FLY", "G", "N804", "N805", "I", "ISC", "LOG", "PIE", "PL",
+    "RET", "RSE", "RUF028", "RUF100", "SIM", "SLF", "UP", "W", "T10", "T20",
+    "TID251", "TID253", "TRY400",
+]
+ignore = [
+    "E501", "E731", "E741", "PLC0414", "PLC0415", "PLR0911", "PLR0912", "PLR0913",
+    "PLR0915", "PLR2004", "PLR2044", "PLW0603", "PLW2901", "PLW1641", "UP031",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 64
+
+[tool.ruff.lint.pylint]
+max-positional-args = 16
+
+[tool.ruff.lint.isort]
+detect-same-package = false
+known-first-party = ["cmk", "rule_schema_api"]
+order-by-type = false
+section-order = [
+    "future", "standard-library", "third-party", "first-party-not-cmk", "first-party",
+    "local-folder",
+]
+
+[tool.ruff.lint.isort.sections]
+first-party-not-cmk = ["cmc_proto", "omdlib", "livestatus"]
+
+[tool.mypy]
+python_version = "3.13"
+explicit_package_bases = true
+mypy_path = "$MYPY_CONFIG_FILE_DIR/lib/python3"
+follow_imports = "silent"
+follow_imports_for_stubs = true
+disable_bytearray_promotion = true
+disable_memoryview_promotion = true
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_incomplete_defs = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_untyped_defs = true
+extra_checks = true
+no_implicit_reexport = true
+strict_bytes = true
+strict_equality = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+disallow_any_decorated = true
+disallow_any_explicit = true
+disallow_any_expr = false
+disallow_any_unimported = false
+strict_equality_for_none = true
+warn_unreachable = true
+enable_error_code = [
+    "deprecated", "exhaustive-match", "explicit-override", "ignore-without-code",
+    "mutable-override", "possibly-undefined", "redundant-expr", "redundant-self",
+    "truthy-bool", "truthy-iterable", "unimported-reveal", "unused-awaitable",
+    "unused-ignore",
+]

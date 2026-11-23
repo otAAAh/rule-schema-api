@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: GPL-2.0-only -->
-# checkmk-rule-schema-explorer
+# rule-schema-api
 
 A Checkmk extension package (MKP, **Checkmk 2.5+**) that adds two endpoints to
 the site's own REST API. API only - no GUI.
@@ -68,13 +68,52 @@ An unknown prefix is reported as the prefix itself.
 These are internal, unversioned Checkmk APIs; expect to adapt the package to
 new Checkmk releases.
 
+## Layout
+
+| repo | installs to (site) | |
+|---|---|---|
+| `gui/wato/rule_schema_api.py` | `local/lib/python3/cmk/gui/plugins/wato/` | loader: imports the package, registers the endpoints |
+| `lib/python3/rule_schema_api/` | `local/lib/python3/rule_schema_api/` | the code |
+
+Checkmk has no plug-in namespace for REST endpoints, so the loader sits in the
+Setup (`wato`) one, which the GUI imports on startup; everything else is a
+normal package on the site's `sys.path`.
+
+| module | |
+|---|---|
+| `endpoints.py` | the two endpoints, response schemas, registration |
+| `catalog.py` | ruleset registry, display-name languages, kinds |
+| `valuespec.py` | schema from a ValueSpec |
+| `form_spec.py` | schema from a FormSpec (where Setup has no valuespec) |
+| `example.py` | example `value_raw` from a schema |
+| `_util.py` | JSON node types, small helpers |
+
+## Development
+
+Lint, format and type settings are Checkmk's own (see `pyproject.toml`).
+
+```sh
+ruff format gui lib scripts tests && ruff check gui lib scripts tests
+# mypy against an installed Checkmk's code (it has no py.typed, so expose its
+# sources through a symlink):
+mkdir -p /tmp/cmksrc && ln -sfn /omd/versions/<version>/lib/python3*/site-packages/cmk /tmp/cmksrc/cmk
+MYPYPATH=/tmp/cmksrc mypy --python-executable /omd/versions/<version>/bin/python3 \
+    lib/python3/rule_schema_api gui/wato/rule_schema_api.py scripts/build_mkp.py
+
+python3 -m unittest discover -s tests -p "test_unit*.py"     # no Checkmk needed
+/omd/versions/<version>/bin/python3 -m unittest discover -s tests -p "test_site*.py"
+```
+
+`test_site*.py` loads the whole GUI of an installed Checkmk version (in a
+throwaway site directory, so it needs no site user) and walks every ruleset.
+
 ## Build & install
 
 ```sh
-python3 scripts/build_mkp.py          # -> rule_schema_explorer-<version>.mkp
+python3 scripts/build_mkp.py          # -> rule_schema_api-<version>.mkp
 # as the site user:
-mkp add rule_schema_explorer-<version>.mkp
-mkp enable rule_schema_explorer <version>
+mkp add rule_schema_api-<version>.mkp
+mkp enable rule_schema_api <version>
 ```
 
 ## License

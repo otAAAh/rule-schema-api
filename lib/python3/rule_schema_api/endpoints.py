@@ -22,9 +22,8 @@ out. The value schema tree is recursive and free-form, hence ``fields.Dict``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from http import HTTPStatus
-from typing import Any
 
 from cmk import fields
 from cmk.gui.fields.base import BaseSchema
@@ -37,14 +36,15 @@ from cmk.gui.openapi.utils import problem, serve_json
 try:  # 3.0
     from cmk.web.utils import permission_verification as permissions
 except ImportError:  # 2.5
-    from cmk.gui.utils import permission_verification as permissions  # type: ignore[no-redef]
+    # 2.5 location. Type-checked against 3.0, where it moved to cmk.web.
+    from cmk.gui.utils import permission_verification as permissions  # type: ignore[attr-defined, no-redef, unused-ignore]
 
 from .catalog import (
     KNOWN_KINDS,
-    UnknownRuleset,
     list_rulesets,
     parameter_names,
     ruleset_schema,
+    UnknownRuleset,
     user_language,
 )
 
@@ -59,7 +59,7 @@ RULE_SCHEMA_FAMILY = EndpointFamily(
         "endpoints list all rulesets and describe the value of each one: the "
         "structure, keys, types, choices and bounds, plus an example `value_raw` "
         "to start from.\n\n"
-        "Provided by the *Rule schema explorer* extension package."
+        "Provided by the *Rule schema API* extension package (rule_schema_api)."
     ),
     doc_group="Setup",
 )
@@ -205,7 +205,7 @@ RULESET_NAME = {
     permissions_required=PERMISSIONS,
     family_name=FAMILY_NAME,
 )
-def list_rule_schemas(params: Mapping[str, Any]) -> Response:
+def list_rule_schemas(params: Mapping[str, object]) -> Response:
     """List all rulesets"""
     user.need_permission("wato.use")
     user.need_permission("wato.rulesets")
@@ -215,7 +215,7 @@ def list_rule_schemas(params: Mapping[str, Any]) -> Response:
             "value": list_rulesets(
                 include_deprecated=bool(params.get("include_deprecated")),
                 lang=user_language(),
-                kinds=frozenset(params["kind"]) if params.get("kind") else None,
+                kinds=_kinds(params.get("kind")),
             ),
         }
     )
@@ -230,11 +230,11 @@ def list_rule_schemas(params: Mapping[str, Any]) -> Response:
     permissions_required=PERMISSIONS,
     family_name=FAMILY_NAME,
 )
-def show_rule_schema(params: Mapping[str, Any]) -> Response:
+def show_rule_schema(params: Mapping[str, object]) -> Response:
     """Show the value schema of a ruleset"""
     user.need_permission("wato.use")
     user.need_permission("wato.rulesets")
-    name = params["ruleset_name"]
+    name = str(params["ruleset_name"])
     try:
         return serve_json(ruleset_schema(name, lang=user_language()))
     except UnknownRuleset:
@@ -245,8 +245,17 @@ def show_rule_schema(params: Mapping[str, Any]) -> Response:
         )
 
 
-def _register(register: Callable[..., None], obj: object) -> None:
+def _kinds(value: object) -> frozenset[str] | None:
+    """The ``kind`` query values (a list after parsing), or None for "all kinds"."""
+    if not isinstance(value, list) or not value:
+        return None
+    return frozenset(str(kind) for kind in value)
+
+
+def _register(register: object, obj: object) -> None:
     """2.5's registries take a mandatory ``ignore_duplicates``; 3.0's don't."""
+    if not callable(register):
+        raise TypeError(f"not a registry method: {register!r}")
     if "ignore_duplicates" in parameter_names(register):
         register(obj, ignore_duplicates=True)
     else:

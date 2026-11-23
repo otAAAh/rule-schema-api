@@ -19,28 +19,30 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any
+from types import CodeType
+from typing import TYPE_CHECKING
 
-from .schema import (
-    Node,
-    _text,
-    describe,
-    describe_form_spec,
-    example_from_node,
-    example_value_raw,
-    python_literal,
-)
+from ._util import Json, Node, python_literal
+from ._util import text as _text
+from .example import example_from_node
+from .form_spec import describe_form_spec
+from .valuespec import describe_valuespec, example_value_raw
+
+if TYPE_CHECKING:
+    from cmk.gui.watolib.rulespecs import Rulespec
 
 ENGLISH = "en"
 
 
-def parameter_names(fn: Callable[..., object]) -> tuple[str, ...]:
+def parameter_names(fn: object) -> tuple[str, ...]:
     """A function's parameter names, without evaluating its annotations.
 
     ``inspect.signature`` evaluates them, and Checkmk annotates with names it
     only imports under ``TYPE_CHECKING`` (a NameError on Python 3.14+).
     """
-    code = getattr(fn, "__func__", fn).__code__
+    code = getattr(getattr(fn, "__func__", fn), "__code__", None)
+    if not isinstance(code, CodeType):
+        return ()
     return code.co_varnames[: code.co_argcount + code.co_kwonlyargcount]
 
 
@@ -52,8 +54,9 @@ def _localize(lang: str) -> None:
         from cmk.gui.config import active_config
 
         i18n.localize(lang, active_config.user_localizations)
-    else:  # 2.5
-        i18n.localize(lang)
+    else:
+        # 2.5's signature. Type-checked against 3.0, which takes two arguments.
+        i18n.localize(lang)  # type: ignore[call-arg, unused-ignore]
 
 
 def user_language() -> str:
@@ -62,7 +65,7 @@ def user_language() -> str:
 
     try:
         return user.language or ENGLISH
-    except Exception:  # noqa: BLE001 - no user context (tests, scripts)
+    except Exception:
         return ENGLISH
 
 
@@ -93,7 +96,7 @@ def _visible(name: str) -> bool:
 def _safe_str(fn: Callable[[], object]) -> str | None:
     try:
         value = fn()
-    except Exception:  # noqa: BLE001 - an MKP's title() may raise
+    except Exception:
         return None
     return None if value is None else str(value)
 
@@ -131,7 +134,7 @@ def ruleset_kind(name: str) -> str:
     return KIND_BY_PREFIX.get(prefix, prefix)
 
 
-def _rulespecs(include_deprecated: bool, kinds: frozenset[str] | None) -> list[Any]:
+def _rulespecs(include_deprecated: bool, kinds: frozenset[str] | None) -> list[Rulespec]:
     from cmk.gui.watolib.rulespecs import rulespec_registry
 
     return [
@@ -143,7 +146,7 @@ def _rulespecs(include_deprecated: bool, kinds: frozenset[str] | None) -> list[A
     ]
 
 
-def _names(rulespec: Any) -> dict[str, str]:
+def _names(rulespec: Rulespec) -> dict[str, str]:
     """Title and group title in the currently active language."""
     return {
         "title": _safe_str(lambda: rulespec.title) or rulespec.name,
@@ -151,16 +154,19 @@ def _names(rulespec: Any) -> dict[str, str]:
     }
 
 
+type _Names = dict[str, str]
+
+
 def _with_display_names(
-    rulespecs: list[Any], lang: str
-) -> list[tuple[Any, dict[str, str], dict[str, str] | None]]:
+    rulespecs: list[Rulespec], lang: str
+) -> list[tuple[Rulespec, _Names, _Names | None]]:
     """Each rulespec with its English names, and its names in ``lang`` unless English."""
     with language(ENGLISH):
         english = [_names(r) for r in rulespecs]
     if lang == ENGLISH:
         return [(r, en, None) for r, en in zip(rulespecs, english, strict=True)]
     with language(lang):
-        local = [_names(r) for r in rulespecs]
+        local: list[_Names | None] = [_names(r) for r in rulespecs]
     return list(zip(rulespecs, english, local, strict=True))
 
 
@@ -169,16 +175,19 @@ def list_rulesets(
     include_deprecated: bool = False,
     lang: str = ENGLISH,
     kinds: frozenset[str] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[Json]:
     """The rulesets the user can see in Setup, sorted by group then English title.
 
     ``kinds`` restricts the list to those kinds (see ``ruleset_kind``); None
     means all. The filter runs before the titles are rendered.
     """
-    result = []
-    rulespecs = _rulespecs(include_deprecated, kinds)
-    for rulespec, en, local in _with_display_names(rulespecs, lang):
-        entry: dict[str, Any] = {
+    named = sorted(
+        _with_display_names(_rulespecs(include_deprecated, kinds), lang),
+        key=lambda row: (row[0].group_name, row[1]["title"].lower()),
+    )
+    result: list[Json] = []
+    for rulespec, en, local in named:
+        entry: dict[str, Json] = {
             "ruleset_name": rulespec.name,
             "kind": ruleset_kind(rulespec.name),
             "display_name_en": en["title"],
@@ -193,7 +202,6 @@ def list_rulesets(
             entry["display_name"] = local["title"]
             entry["group_display_name"] = local["group_title"]
         result.append(entry)
-    result.sort(key=lambda e: (e["group"], e["display_name_en"].lower()))
     return result
 
 
@@ -201,7 +209,7 @@ class UnknownRuleset(KeyError):
     pass
 
 
-def ruleset_schema(name: str, *, lang: str = ENGLISH) -> dict[str, Any]:
+def ruleset_schema(name: str, *, lang: str = ENGLISH) -> dict[str, Json]:
     """One ruleset's value schema, plus an example ``value_raw``.
 
     The schema's titles and help texts are in ``lang`` (they are what a person
@@ -217,7 +225,7 @@ def ruleset_schema(name: str, *, lang: str = ENGLISH) -> dict[str, Any]:
     with language(lang):
         schema, example, source = _value_schema(rulespec)
         item_spec = _safe_item_spec(rulespec)
-        result: dict[str, Any] = {
+        result: dict[str, Json] = {
             "ruleset_name": name,
             "kind": ruleset_kind(name),
             "display_name_en": en["title"],
@@ -225,7 +233,7 @@ def ruleset_schema(name: str, *, lang: str = ENGLISH) -> dict[str, Any]:
             "match_type": rulespec.match_type,
             "item_type": rulespec.item_type,
             "item_name": _safe_str(lambda: rulespec.item_name),
-            "item_schema": None if item_spec is None else describe(item_spec),
+            "item_schema": None if item_spec is None else describe_valuespec(item_spec),
             "schema_source": source,
             "schema": schema,
             "example_value_raw": example,
@@ -235,7 +243,7 @@ def ruleset_schema(name: str, *, lang: str = ENGLISH) -> dict[str, Any]:
     return result
 
 
-def _value_schema(rulespec: Any) -> tuple[Node, str | None, str]:
+def _value_schema(rulespec: Rulespec) -> tuple[Node, str | None, str]:
     """(schema, example value_raw, source) - from the valuespec where Setup can
     still build one, else from the FormSpec (3.0 cannot convert every FormSpec)."""
     try:
@@ -245,10 +253,10 @@ def _value_schema(rulespec: Any) -> tuple[Node, str | None, str]:
             raise
         schema = describe_form_spec(rulespec.form_spec)
         return schema, python_literal(example_from_node(schema)), "form_spec"
-    return describe(valuespec), example_value_raw(valuespec), "valuespec"
+    return describe_valuespec(valuespec), example_value_raw(valuespec), "valuespec"
 
 
-def _safe_item_spec(rulespec: Any) -> Any:
+def _safe_item_spec(rulespec: Rulespec) -> object:
     if rulespec.item_type != "item":
         return None
     try:

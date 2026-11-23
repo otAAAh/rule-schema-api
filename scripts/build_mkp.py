@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 Benjamin Knapp
 # SPDX-License-Identifier: GPL-2.0-only
-"""Build the rule_schema_explorer MKP using only the standard library.
+"""Build the rule_schema_api MKP using only the standard library.
 
-One part: ``gui.tar`` - ``gui/`` relative to the site's
-``local/lib/python3/cmk/gui/plugins`` (the GUI imports
-``wato/rule_schema_explorer`` on startup, which registers the REST endpoints).
+Parts (repo directory -> site directory):
+  - ``gui.tar``: ``gui/`` -> ``local/lib/python3/cmk/gui/plugins``. Only the
+    loader ``wato/rule_schema_api.py``, which the GUI imports on startup.
+  - ``lib.tar``: ``lib/`` -> ``local/lib``. The code, as the package
+    ``python3/rule_schema_api`` (``local/lib/python3`` is on ``sys.path``).
 
 An MKP is a gzipped tar of ``info`` (the manifest as a Python literal),
 ``info.json`` and one inner tar per part - cmk_mkp_tool's format, without
@@ -17,12 +19,13 @@ from __future__ import annotations
 import io
 import json
 import pprint
+import sys
 import tarfile
 import tomllib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-PARTS = {"gui": REPO / "gui"}
+PARTS = {"gui": REPO / "gui", "lib": REPO / "lib"}
 
 
 def _shipped_files(base: Path) -> list[Path]:
@@ -71,7 +74,7 @@ def build() -> Path:
         "name": mkp["package_name"],
         "description": project["description"],
         "version": version,
-        "version.packaged": f"checkmk-rule-schema-explorer {version}",
+        "version.packaged": f"rule-schema-api {version}",
         "version.min_required": mkp["min_required"],
         "version.usable_until": mkp.get("usable_until"),
         "author": mkp["author"],
@@ -90,4 +93,4 @@ def build() -> Path:
 
 
 if __name__ == "__main__":
-    print(build())
+    sys.stdout.write(f"{build()}\n")
