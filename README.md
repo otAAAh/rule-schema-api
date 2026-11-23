@@ -2,7 +2,7 @@
 # checkmk-rule-schema-explorer
 
 A Checkmk extension package (MKP, **Checkmk 2.5+**) that adds two endpoints to
-the site's own REST API, plus a Setup page to browse them.
+the site's own REST API. API only - no GUI.
 
 The rules endpoints take a rule's value as `value_raw`, a Python literal
 string, but nothing in the API says what that value may contain. This package
@@ -16,10 +16,10 @@ appear in the API documentation as **Rule schemas**.
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/domain-types/rule_schema/collections/all[?include_deprecated=true]` | every ruleset |
+| GET | `/domain-types/rule_schema/collections/all[?kind=...][&include_deprecated=true]` | every ruleset, optionally filtered by kind |
 | GET | `/objects/rule_schema/{ruleset_name}` | one ruleset's value schema |
 
-Each collection entry has `ruleset_name`, `display_name_en` (English title),
+Each collection entry has `ruleset_name`, `kind`, `display_name_en` (English title),
 `group`, `group_display_name_en`, `match_type`, `item_type`, `is_deprecated`
 and `is_form_spec`. When the requesting user's language is **not** English,
 `display_name` and `group_display_name` (translated) are added.
@@ -34,11 +34,26 @@ curl -u cmkadmin:$PASSWORD \
   "http://localhost/mysite/check_mk/api/1.0/objects/rule_schema/checkgroup_parameters:filesystem"
 ```
 
-## Setup page
+## Kinds
 
-**Setup › General › Rule schema explorer** (`wato.py?mode=rule_schema_explorer`,
-`&ruleset=<name>` deep-links): search the rulesets, view a schema tree, copy
-the example `value_raw` or a `curl` call.
+`kind` comes from the ruleset name's prefix; filter with a repeatable
+`?kind=` (`?kind=service_parameters&kind=discovery`):
+
+| kind | prefix |
+|---|---|
+| `service_parameters` | `checkgroup_parameters:` |
+| `enforced_services` | `static_checks:` |
+| `discovery` | `discovery_parameters:` |
+| `agent_config` | `agent_config:` |
+| `special_agents` | `special_agents:` |
+| `active_checks` | `active_checks:` |
+| `service_monitoring` | `extra_service_conf:` |
+| `host_monitoring` | `extra_host_conf:` |
+| `notification_parameters` | `notification_parameters:` |
+| `inventory` | `inv_parameters:` |
+| `general` | no prefix (groups, tags, ...) |
+
+An unknown prefix is reported as the prefix itself.
 
 ## How it works
 

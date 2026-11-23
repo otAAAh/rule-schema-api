@@ -39,7 +39,14 @@ try:  # 3.0
 except ImportError:  # 2.5
     from cmk.gui.utils import permission_verification as permissions  # type: ignore[no-redef]
 
-from .catalog import UnknownRuleset, list_rulesets, parameter_names, ruleset_schema, user_language
+from .catalog import (
+    KNOWN_KINDS,
+    UnknownRuleset,
+    list_rulesets,
+    parameter_names,
+    ruleset_schema,
+    user_language,
+)
 
 FAMILY_NAME = "Rule schemas"
 
@@ -59,6 +66,13 @@ RULE_SCHEMA_FAMILY = EndpointFamily(
 
 PERMISSIONS = permissions.AllPerm([permissions.Perm("wato.use"), permissions.Perm("wato.rulesets")])
 
+_KIND_HELP = (
+    "What the ruleset is for, from its name prefix: "
+    + ", ".join(f"`{k}`" for k in KNOWN_KINDS)
+    + ". `general` are rulesets without a prefix (groups, tags, ...). A prefix not "
+    "known to this package is reported as the prefix itself."
+)
+
 _NAME_HELP = (
     "Only present when the requesting user's language is not English: the same name, translated."
 )
@@ -69,6 +83,11 @@ class RuleSchemaEntry(BaseSchema):
         required=True,
         description="The ruleset's name - what the rules endpoints call `ruleset`.",
         example="checkgroup_parameters:filesystem",
+    )
+    kind = fields.String(
+        required=True,
+        description=_KIND_HELP,
+        example="service_parameters",
     )
     display_name_en = fields.String(
         required=True,
@@ -108,6 +127,11 @@ class RuleSchemaCollection(BaseSchema):
 
 class RuleSchemaObject(BaseSchema):
     ruleset_name = fields.String(required=True, description="The ruleset's name.")
+    kind = fields.String(
+        required=True,
+        description=_KIND_HELP,
+        example="service_parameters",
+    )
     display_name_en = fields.String(required=True, description="The ruleset's English title.")
     display_name = fields.String(description=_NAME_HELP)
     help = fields.String(allow_none=True, description="The ruleset's help text, plain text.")
@@ -144,13 +168,23 @@ class RuleSchemaObject(BaseSchema):
     )
 
 
-INCLUDE_DEPRECATED = {
+LIST_QUERY = {
+    "kind": fields.List(
+        fields.String(),
+        load_default=[],
+        required=False,
+        description=(
+            "Only list rulesets of these kinds; repeat the parameter for several "
+            "(`?kind=service_parameters&kind=discovery`). Omitted: all kinds. " + _KIND_HELP
+        ),
+        example=["service_parameters", "discovery"],
+    ),
     "include_deprecated": fields.Boolean(
         load_default=False,
         required=False,
         description="Also list deprecated rulesets.",
         example=False,
-    )
+    ),
 }
 
 RULESET_NAME = {
@@ -166,7 +200,7 @@ RULESET_NAME = {
     "/domain-types/rule_schema/collections/all",
     ".../collection",
     method="get",
-    query_params=[INCLUDE_DEPRECATED],
+    query_params=[LIST_QUERY],
     response_schema=RuleSchemaCollection,
     permissions_required=PERMISSIONS,
     family_name=FAMILY_NAME,
@@ -181,6 +215,7 @@ def list_rule_schemas(params: Mapping[str, Any]) -> Response:
             "value": list_rulesets(
                 include_deprecated=bool(params.get("include_deprecated")),
                 lang=user_language(),
+                kinds=frozenset(params["kind"]) if params.get("kind") else None,
             ),
         }
     )

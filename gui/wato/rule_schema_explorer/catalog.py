@@ -104,13 +104,42 @@ def _group_title(group_name: str) -> str:
     return _safe_str(lambda: get_rulegroup(group_name).title) or group_name
 
 
-def _rulespecs(include_deprecated: bool) -> list[Any]:
+# What a ruleset is for, from its name prefix ("checkgroup_parameters:df", ...).
+# Rulesets without a prefix (host groups, contact groups, tags, ...) are
+# "general"; a prefix not listed here (a new Checkmk release, an MKP) is reported
+# as the prefix itself, so nothing is silently lumped into "general".
+KIND_BY_PREFIX = {
+    "checkgroup_parameters": "service_parameters",
+    "static_checks": "enforced_services",
+    "discovery_parameters": "discovery",
+    "agent_config": "agent_config",
+    "special_agents": "special_agents",
+    "active_checks": "active_checks",
+    "extra_service_conf": "service_monitoring",
+    "extra_host_conf": "host_monitoring",
+    "notification_parameters": "notification_parameters",
+    "inv_parameters": "inventory",
+}
+GENERAL_KIND = "general"
+KNOWN_KINDS = (*KIND_BY_PREFIX.values(), GENERAL_KIND)
+
+
+def ruleset_kind(name: str) -> str:
+    prefix, sep, _ = name.partition(":")
+    if not sep:
+        return GENERAL_KIND
+    return KIND_BY_PREFIX.get(prefix, prefix)
+
+
+def _rulespecs(include_deprecated: bool, kinds: frozenset[str] | None) -> list[Any]:
     from cmk.gui.watolib.rulespecs import rulespec_registry
 
     return [
         rulespec_registry[name]
         for name in rulespec_registry.keys()  # noqa: SIM118 - a Registry, not a dict
-        if (include_deprecated or not rulespec_registry[name].is_deprecated) and _visible(name)
+        if (include_deprecated or not rulespec_registry[name].is_deprecated)
+        and (kinds is None or ruleset_kind(name) in kinds)
+        and _visible(name)
     ]
 
 
@@ -135,12 +164,23 @@ def _with_display_names(
     return list(zip(rulespecs, english, local, strict=True))
 
 
-def list_rulesets(*, include_deprecated: bool = False, lang: str = ENGLISH) -> list[dict[str, Any]]:
-    """All rulesets the user can see in Setup, sorted by group then English title."""
+def list_rulesets(
+    *,
+    include_deprecated: bool = False,
+    lang: str = ENGLISH,
+    kinds: frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
+    """The rulesets the user can see in Setup, sorted by group then English title.
+
+    ``kinds`` restricts the list to those kinds (see ``ruleset_kind``); None
+    means all. The filter runs before the titles are rendered.
+    """
     result = []
-    for rulespec, en, local in _with_display_names(_rulespecs(include_deprecated), lang):
+    rulespecs = _rulespecs(include_deprecated, kinds)
+    for rulespec, en, local in _with_display_names(rulespecs, lang):
         entry: dict[str, Any] = {
             "ruleset_name": rulespec.name,
+            "kind": ruleset_kind(rulespec.name),
             "display_name_en": en["title"],
             "group": rulespec.group_name,
             "group_display_name_en": en["group_title"],
@@ -179,6 +219,7 @@ def ruleset_schema(name: str, *, lang: str = ENGLISH) -> dict[str, Any]:
         item_spec = _safe_item_spec(rulespec)
         result: dict[str, Any] = {
             "ruleset_name": name,
+            "kind": ruleset_kind(name),
             "display_name_en": en["title"],
             "help": _text(_safe_str(lambda: rulespec.help)),
             "match_type": rulespec.match_type,
@@ -216,4 +257,12 @@ def _safe_item_spec(rulespec: Any) -> Any:
         return None
 
 
-__all__ = ["Node", "UnknownRuleset", "list_rulesets", "ruleset_schema", "user_language"]
+__all__ = [
+    "KNOWN_KINDS",
+    "Node",
+    "UnknownRuleset",
+    "list_rulesets",
+    "ruleset_kind",
+    "ruleset_schema",
+    "user_language",
+]

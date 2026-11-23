@@ -3,10 +3,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Build the rule_schema_explorer MKP using only the standard library.
 
-Parts:
-  - ``gui.tar`` - ``gui/`` relative to the site's ``local/lib/python3/cmk/gui/plugins``
-    (the GUI imports ``wato/rule_schema_explorer`` on startup).
-  - ``web.tar`` - ``web/`` relative to ``local/share/check_mk/web`` (the page's JS/CSS).
+One part: ``gui.tar`` - ``gui/`` relative to the site's
+``local/lib/python3/cmk/gui/plugins`` (the GUI imports
+``wato/rule_schema_explorer`` on startup, which registers the REST endpoints).
 
 An MKP is a gzipped tar of ``info`` (the manifest as a Python literal),
 ``info.json`` and one inner tar per part - cmk_mkp_tool's format, without
@@ -23,7 +22,7 @@ import tomllib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-PARTS = {"gui": REPO / "gui", "web": REPO / "web"}
+PARTS = {"gui": REPO / "gui"}
 
 
 def _shipped_files(base: Path) -> list[Path]:
