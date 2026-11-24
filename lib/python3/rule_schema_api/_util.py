@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable
+from enum import Enum
 
 # Choice lists can be huge (all host groups, all timeperiods, ...) and some are
 # computed from live config. A schema lists the first ones and says so (``truncated``).
@@ -65,7 +66,13 @@ def first[T](items: Iterable[T], limit: int) -> tuple[list[T], bool]:
 
 
 def jsonable(value: object) -> JsonScalar:
-    """Choice values are arbitrary Python; keep JSON scalars, repr the rest."""
+    """Choice values are arbitrary Python; keep JSON scalars, repr the rest.
+
+    An enum member (FormSpec choices use StrEnums) becomes its plain value: as a
+    str subclass it would pass as a string, but its repr is no Python literal.
+    """
+    if isinstance(value, Enum):
+        value = value.value
     if value is None or isinstance(value, bool | int | float | str):
         return value
     return python_literal(value)

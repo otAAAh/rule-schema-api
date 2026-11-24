@@ -146,6 +146,8 @@ def describe_valuespec(vs: object, *, depth: int = 0) -> Node:
 
     if isinstance(vs, v.ListOfStrings | v.ListOf):
         node.update(type="list", element=child(_private(vs, "_valuespec")))
+        if _private(vs, "_allow_empty") is False:
+            node["min_items"] = 1
         return node
 
     if isinstance(vs, v.CascadingDropdown):
@@ -159,6 +161,7 @@ def describe_valuespec(vs: object, *, depth: int = 0) -> Node:
             for value, title, sub_vs in shown
         ]
         node.update(type="cascading", choices=cascading, truncated=truncated)
+        _selection_required(node, vs)
         return node
 
     if isinstance(vs, v.Alternative):
@@ -178,6 +181,7 @@ def describe_valuespec(vs: object, *, depth: int = 0) -> Node:
     if isinstance(vs, v.DropdownChoice):
         choices, truncated = _choices(_pairs(safe(vs.choices, [])))
         node.update(type="choice", choices=choices, truncated=truncated)
+        _selection_required(node, vs)
         return node
 
     if isinstance(vs, v.ListChoice):
@@ -213,6 +217,15 @@ def describe_valuespec(vs: object, *, depth: int = 0) -> Node:
             node["secret"] = True
         if regex := _private(vs, "_regex"):
             node["pattern"] = str(getattr(regex, "pattern", regex))
+        min_length = _private(vs, "_minlen")
+        if isinstance(min_length, int) and min_length > 0:
+            node["min_length"] = min_length
+        elif _private(vs, "_allow_empty") is False:
+            node["min_length"] = 1
+        if isinstance(vs, v.Url):
+            node["format"] = "url"
+        elif isinstance(vs, v.EmailAddress):
+            node["format"] = "email"
         return node
 
     if isinstance(vs, v.Labels):
@@ -220,6 +233,12 @@ def describe_valuespec(vs: object, *, depth: int = 0) -> Node:
         return node
 
     return node
+
+
+def _selection_required(node: Node, vs: object) -> None:
+    """A dropdown without a preselection: None (the "please select" entry) is invalid."""
+    if _private(vs, "_no_preselect_title") is not None:
+        node["selection_required"] = True
 
 
 def _bounds(node: Node, vs: object) -> None:

@@ -39,17 +39,42 @@ def _class_names(obj: object) -> list[str]:
     return [cls.__name__ for cls in type(obj).__mro__]
 
 
-def _form_spec_bounds(node: Node, fs: object) -> None:
-    """min/max from a ``NumberInRange`` validator, if the FormSpec has one."""
+def _form_spec_constraints(node: Node, fs: object) -> None:
+    """What the FormSpec's validators demand, as schema keys.
+
+    Bounds go to min/max (numbers) or min_length/max_length (text) or
+    min_items/max_items (lists); URL and e-mail validators set ``format``.
+    """
+    kind = node.get("type")
     for validator in iterable(_field(fs, "custom_validate")):
-        if type(validator).__name__ != "NumberInRange":
-            continue
-        limits = getattr(validator, "range", None)
-        if not (isinstance(limits, tuple) and len(limits) == 2):
-            continue
-        for key, limit in zip(("min", "max"), limits, strict=True):
-            if isinstance(limit, int | float):
-                node[key] = limit
+        name = type(validator).__name__
+        if name in ("NumberInRange", "LengthInRange"):
+            limits = getattr(validator, "range", None)
+            if not (isinstance(limits, tuple) and len(limits) == 2):
+                continue
+            if name == "NumberInRange":
+                keys = ("min", "max")
+            elif kind in ("list", "multiple_choice"):
+                keys = ("min_items", "max_items")
+            else:
+                keys = ("min_length", "max_length")
+            for key, limit in zip(keys, limits, strict=True):
+                if isinstance(limit, int | float) and not isinstance(limit, bool):
+                    node[key] = limit
+        elif name == "Url":
+            node["format"] = "url"
+            protocols: list[Json] = [
+                str(getattr(p, "value", p)) for p in iterable(_field(validator, "protocols"))
+            ]
+            if protocols:
+                node["protocols"] = protocols
+        elif name == "EmailAddress":
+            node["format"] = "email"
+        elif name == "MatchRegex":
+            regex = _field(validator, "regex")
+            node["pattern"] = str(getattr(regex, "pattern", regex))
+        elif name == "NetworkPort":
+            node["min"], node["max"] = 0, 65535
 
 
 def _form_spec_elements(fs: object) -> Iterable[object]:
@@ -140,7 +165,9 @@ def describe_form_spec(fs: object, *, depth: int = 0) -> Node:
             }
             for e in shown
         ]
-        node.update(type="cascading", choices=cascading, truncated=truncated)
+        node.update(
+            type="cascading", choices=cascading, truncated=truncated, selection_required=True
+        )
     elif is_("SingleChoice", "SingleChoiceExtended", "SingleChoiceEditable", "MultipleChoice"):
         shown, truncated = first(_form_spec_elements(fs), MAX_CHOICES)
         choices: list[Json] = [
@@ -152,6 +179,8 @@ def describe_form_spec(fs: object, *, depth: int = 0) -> Node:
             choices=choices,
             truncated=truncated,
         )
+        if not is_("MultipleChoice"):
+            node["selection_required"] = True
     elif is_("ServiceState", "HostState"):
         states = (
             [(0, "OK"), (1, "WARN"), (2, "CRIT"), (3, "UNKNOWN")]
@@ -166,23 +195,45 @@ def describe_form_spec(fs: object, *, depth: int = 0) -> Node:
         node.update(type="cascading", choices=_levels_choices(fs, child), truncated=False)
     elif is_("Percentage"):
         node.update(type="float", unit="percent")
-        _form_spec_bounds(node, fs)
     elif is_("TimeSpan"):
         node.update(type="float", unit="seconds")
-        _form_spec_bounds(node, fs)
     elif is_("DataSize"):
         node.update(type="integer", unit="bytes")
-        _form_spec_bounds(node, fs)
     elif is_("Integer"):
         node["type"] = "integer"
-        _form_spec_bounds(node, fs)
     elif is_("Float"):
         node["type"] = "float"
-        _form_spec_bounds(node, fs)
     elif is_("BooleanChoice"):
         node["type"] = "boolean"
-    elif is_("String", "MultilineText", "RegularExpression", "CommentTextArea"):
+    elif is_(
+        "String",
+        "MultilineText",
+        "RegularExpression",
+        "CommentTextArea",
+        "Metric",
+        "MonitoredHost",
+        "MonitoredService",
+    ):
         node["type"] = "string"
+    elif is_("Proxy", "InternalProxy"):
+        node.update(
+            type="proxy",
+            format=(
+                "('cmk_postprocessed', 'environment_proxy' | 'no_proxy', '') or "
+                "('cmk_postprocessed', 'stored_proxy', <proxy id>) or "
+                "('cmk_postprocessed', 'explicit_proxy', <proxy URL>)"
+            ),
+        )
+    elif is_("TimePeriod"):
+        node.update(
+            type="time_period",
+            format="('cmk_postprocessed', 'stored_time_period', <time period name>)",
+        )
+    elif is_("OAuth2Connection"):
+        node.update(
+            type="oauth2_connection",
+            format="('cmk_postprocessed', 'oauth2_connection', <connection id>)",
+        )
     elif is_("Password", "PasswordStorePassword"):
         node.update(
             type="password",
@@ -201,4 +252,5 @@ def describe_form_spec(fs: object, *, depth: int = 0) -> Node:
         node.update(type="optional", element=child(_field(fs, "parameter_form")))
     elif is_("Labels"):
         node["type"] = "labels"
+    _form_spec_constraints(node, fs)
     return node

@@ -26,6 +26,7 @@ from ._util import Json, Node, python_literal
 from ._util import text as _text
 from .example import example_from_node
 from .form_spec import describe_form_spec
+from .validate import Problem, validate_value_raw
 from .valuespec import describe_valuespec, example_value_raw
 
 if TYPE_CHECKING:
@@ -232,7 +233,8 @@ def ruleset_schema(name: str, *, lang: str = ENGLISH) -> dict[str, Json]:
     ((_, en, local),) = _with_display_names([rulespec], lang)
 
     with language(lang):
-        schema, example, source = _value_schema(rulespec)
+        schema, default_example, source = _value_schema(rulespec)
+        example, example_problems = _checked_example(rulespec, default_example, schema)
         item_spec = _safe_item_spec(rulespec)
         result: dict[str, Json] = {
             "ruleset_name": name,
@@ -246,23 +248,62 @@ def ruleset_schema(name: str, *, lang: str = ENGLISH) -> dict[str, Json]:
             "schema_source": source,
             "schema": schema,
             "example_value_raw": example,
+            # True: the rules API accepts it unchanged; False: see example_problems;
+            # None: this Checkmk offers no value check to ask.
+            "example_valid": None if example_problems is None else not example_problems,
+            "example_problems": problems_json(example_problems or []),
         }
     if local is not None:
         result["display_name"] = local["title"]
     return result
 
 
+def problems_json(problems: list[Problem]) -> list[Json]:
+    return [{"title": p["title"], "detail": p["detail"]} for p in problems]
+
+
 def _value_schema(rulespec: Rulespec) -> tuple[Node, str | None, str]:
-    """(schema, example value_raw, source) - from the valuespec where Setup can
-    still build one, else from the FormSpec (3.0 cannot convert every FormSpec)."""
+    """(schema, Checkmk's default value_raw if any, source).
+
+    A ruleset defined as a FormSpec is described from the FormSpec: the rules
+    API validates its values against the FormSpec, and only the FormSpec carries
+    the validators (minimum lengths, URL checks, ...) - the valuespec Setup
+    converts it to loses them. Legacy rulesets are described from the valuespec.
+    The default value comes from the valuespec where Setup can still build one.
+    """
     try:
-        valuespec = rulespec.valuespec
+        valuespec: object = rulespec.valuespec
     except NotImplementedError:
-        if not getattr(rulespec, "has_form_spec", False):
-            raise
-        schema = describe_form_spec(rulespec.form_spec)
-        return schema, python_literal(example_from_node(schema)), "form_spec"
-    return describe_valuespec(valuespec), example_value_raw(valuespec), "valuespec"
+        valuespec = None
+    default = None if valuespec is None else example_value_raw(valuespec)
+    if getattr(rulespec, "has_form_spec", False):
+        return describe_form_spec(rulespec.form_spec), default, "form_spec"
+    if valuespec is None:
+        raise NotImplementedError(f"{rulespec.name}: neither a FormSpec nor a valuespec")
+    return describe_valuespec(valuespec), default, "valuespec"
+
+
+def _checked_example(
+    rulespec: Rulespec, default: str | None, schema: Node
+) -> tuple[str | None, list[Problem] | None]:
+    """The example to hand out, and what the rules API would say about it.
+
+    Candidates in order: Checkmk's default value (what the GUI starts a new
+    rule with), then a value built from the schema with placeholders where an
+    empty value is rejected. The first one the rules API accepts wins; if none
+    does, the first candidate is returned with its problems.
+    """
+    candidates = [c for c in (default, python_literal(example_from_node(schema))) if c]
+    first_problems: list[Problem] | None = None
+    for candidate in dict.fromkeys(candidates):  # keeps order, drops a duplicate
+        problems = validate_value_raw(rulespec, candidate)
+        if problems is None:  # no validator: hand out the default, unchecked
+            return candidates[0], None
+        if not problems:
+            return candidate, []
+        if first_problems is None:
+            first_problems = problems
+    return (candidates[0] if candidates else None), first_problems
 
 
 def _safe_item_spec(rulespec: Rulespec) -> object:
