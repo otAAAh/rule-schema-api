@@ -131,6 +131,21 @@ def check_object(site: Site) -> None:
     _say("ok   object: filesystem schema, 404 for an unknown ruleset")
 
 
+def check_validate(site: Site) -> None:
+    name = "checkgroup_parameters:filesystem"
+    _, schema = site.get(f"/objects/rule_schema/{name}")
+    example = _dig(schema, "example_value_raw")
+    _expect(_dig(schema, "example_valid") is True, f"{name}: example not valid: {schema}")
+    path = f"/objects/rule_schema/{name}/actions/validate/invoke"
+    status, verdict, _ = site.request(path, method="POST", body={"value_raw": example})
+    _expect(status == 200 and _dig(verdict, "valid") is True, f"validate example: {verdict}")
+    bad = {"value_raw": "{'levels': 'not a tuple'}"}
+    status, verdict, _ = site.request(path, method="POST", body=bad)
+    _expect(status == 200 and _dig(verdict, "valid") is False, f"validate bad value: {verdict}")
+    _expect(bool(_dig(verdict, "problems")), "no problems reported for a bad value")
+    _say("ok   validate: example accepted, a bad value rejected with problems")
+
+
 def check_all_schemas(site: Site, entries: list[dict[str, object]]) -> None:
     failures = []
     for entry in entries:
@@ -170,6 +185,7 @@ def main() -> int:
         entries = check_collection(site)
         check_kind_filter(site, entries)
         check_object(site)
+        check_validate(site)
         if args.language:
             check_language(site, args.language)
         if args.all:

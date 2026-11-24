@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from enum import StrEnum
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib" / "python3"))
@@ -91,6 +92,41 @@ class TestExampleFromNode(unittest.TestCase):
     def test_bool_min_is_not_a_number(self) -> None:
         self.assertEqual(example_from_node({"type": "integer", "min": True}), 0)
 
+    def test_placeholders_where_empty_is_rejected(self) -> None:
+        self.assertEqual(example_from_node({"type": "string", "min_length": 1}), "example")
+        self.assertEqual(example_from_node({"type": "string", "min_length": 10}), "examplexxx")
+        self.assertEqual(
+            example_from_node({"type": "string", "format": "url"}), "https://example.com"
+        )
+        self.assertEqual(
+            example_from_node({"type": "string", "format": "url", "protocols": ["http"]}),
+            "http://example.com",
+        )
+        self.assertEqual(
+            example_from_node({"type": "string", "format": "email"}), "user@example.com"
+        )
+
+    def test_choice_skips_the_please_select_entry(self) -> None:
+        node = {"type": "choice", "choices": [{"value": None}, {"value": "a"}]}
+        self.assertEqual(example_from_node(node), "a")
+
+    def test_lists_and_multiple_choices(self) -> None:
+        element = {"type": "string", "min_length": 1}
+        self.assertEqual(
+            example_from_node({"type": "list", "element": element, "min_items": 1}), ["example"]
+        )
+        node = {"type": "multiple_choice", "choices": [{"value": "x"}, {"value": "y"}]}
+        self.assertEqual(example_from_node(node), ["x"])
+
+    def test_preconfigured_values(self) -> None:
+        self.assertEqual(
+            example_from_node({"type": "proxy"}), ("cmk_postprocessed", "environment_proxy", "")
+        )
+        self.assertEqual(
+            example_from_node({"type": "time_period"}),
+            ("cmk_postprocessed", "stored_time_period", "24X7"),
+        )
+
     def test_malformed_nodes_do_not_raise(self) -> None:
         self.assertIsNone(example_from_node(None))
         self.assertEqual(example_from_node({"type": "dictionary", "elements": "x"}), {})
@@ -105,6 +141,14 @@ class TestHelpers(unittest.TestCase):
     def test_jsonable(self) -> None:
         self.assertEqual(jsonable(3), 3)
         self.assertEqual(jsonable(("a", 1)), "('a', 1)")
+
+    def test_jsonable_unwraps_enum_members(self) -> None:
+        class Kind(StrEnum):
+            MULTIPLE = "multiple_services"
+
+        value = jsonable(Kind.MULTIPLE)
+        self.assertEqual(value, "multiple_services")
+        self.assertIs(type(value), str)  # its repr must be a Python literal
 
     def test_text_strips_tags(self) -> None:
         self.assertEqual(text("<b>Levels</b> for <i>x</i> "), "Levels for x")

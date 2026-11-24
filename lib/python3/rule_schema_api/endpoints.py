@@ -45,10 +45,12 @@ from .catalog import (
     KNOWN_KINDS,
     list_rulesets,
     parameter_names,
+    problems_json,
     ruleset_schema,
     UnknownRuleset,
     user_language,
 )
+from .validate import validate_value_raw
 
 FAMILY_NAME = "Rule schemas"
 
@@ -127,6 +129,19 @@ class RuleSchemaCollection(BaseSchema):
     value = fields.List(fields.Nested(RuleSchemaEntry), description="All rulesets.")
 
 
+class ValueProblem(BaseSchema):
+    title = fields.String(
+        required=True,
+        description="The problem's title, as the rules API reports it.",
+        example="Problem in field username",
+    )
+    detail = fields.String(
+        required=True,
+        description="The problem's detail, as the rules API reports it.",
+        example="The minimum allowed length is 1.",
+    )
+
+
 class RuleSchemaObject(BaseSchema):
     ruleset_name = fields.String(required=True, description="The ruleset's name.")
     kind = fields.String(
@@ -160,13 +175,51 @@ class RuleSchemaObject(BaseSchema):
             "fixed, timespecific, string, password, integer, float, boolean, labels or "
             "unknown), `title`, "
             "`help` and `valuespec`, plus `elements`/`element`/`choices`/`min`/`max` "
-            "where they apply."
+            "where they apply. Constraints the rules API checks: `min_length`/"
+            "`max_length` (text), `min_items`/`max_items` (lists), `format` "
+            "(`url`, `email`), `pattern`, and `selection_required` (a dropdown whose "
+            '"please select" entry, None, is not a valid value).'
         ),
     )
     example_value_raw = fields.String(
         allow_none=True,
-        description="A valid `value_raw` to start from: the ruleset's default value.",
+        description=(
+            "A `value_raw` to start from: the ruleset's default value, or - where the "
+            "rules API rejects that - a value built from the schema with placeholders "
+            "(`example`, `https://example.com`, ...). Check `example_valid`."
+        ),
         example="{'levels': (80.0, 90.0)}",
+    )
+    example_valid = fields.Boolean(
+        allow_none=True,
+        description=(
+            "Whether the rules API accepts `example_value_raw` unchanged (checked with "
+            "its own value check). False: see `example_problems` - typically "
+            "credentials or names to fill in. Null: this Checkmk could not be asked."
+        ),
+    )
+    example_problems = fields.List(
+        fields.Nested(ValueProblem),
+        description="What the rules API would reject in `example_value_raw`.",
+    )
+
+
+class ValidateRequest(BaseSchema):
+    value_raw = fields.String(
+        required=True,
+        description="The rule value to check, as for the rules API: a Python literal.",
+        example="{'levels': (80.0, 90.0)}",
+    )
+
+
+class ValidateResponse(BaseSchema):
+    valid = fields.Boolean(
+        required=True,
+        description="True if the rules API would accept this `value_raw` for the ruleset.",
+    )
+    problems = fields.List(
+        fields.Nested(ValueProblem),
+        description="Why not, as the rules API would answer. Empty when valid.",
     )
 
 
@@ -247,6 +300,50 @@ def show_rule_schema(params: Mapping[str, object]) -> Response:
         )
 
 
+@Endpoint(
+    "/objects/rule_schema/{ruleset_name}/actions/validate/invoke",
+    ".../invoke",
+    method="post",
+    path_params=[RULESET_NAME],
+    request_schema=ValidateRequest,
+    response_schema=ValidateResponse,
+    permissions_required=PERMISSIONS,
+    family_name=FAMILY_NAME,
+    # Read-only: no Setup lock, and no "pending changes" marker.
+    skip_locking=True,
+    update_config_generation=False,
+)
+def validate_rule_value(params: Mapping[str, object]) -> Response:
+    """Check a value_raw without creating a rule
+
+    Runs the rules API's own value check - the one `POST
+    /domain-types/rule/collections/all` runs - and returns its verdict. Nothing is
+    created or changed. The folder, conditions and permissions of a real rule are
+    not part of the check.
+    """
+    user.need_permission("wato.use")
+    user.need_permission("wato.rulesets")
+    from cmk.gui.watolib.rulespecs import rulespec_registry
+
+    name = str(params["ruleset_name"])
+    body = params.get("body")
+    value_raw = body.get("value_raw") if isinstance(body, Mapping) else None
+    if name not in rulespec_registry:
+        return problem(
+            status=HTTPStatus.NOT_FOUND,
+            title="Unknown ruleset.",
+            detail=f"The ruleset of name {name!r} is not known.",
+        )
+    problems = validate_value_raw(rulespec_registry[name], str(value_raw))
+    if problems is None:
+        return problem(
+            status=HTTPStatus.NOT_IMPLEMENTED,
+            title="No value check available.",
+            detail="This Checkmk version offers no rule value check to call.",
+        )
+    return serve_json({"valid": not problems, "problems": problems_json(problems)})
+
+
 def _kinds(value: object) -> frozenset[str] | None:
     """The ``kind`` query values (a list after parsing), or None for "all kinds"."""
     if not isinstance(value, list) or not value:
@@ -271,3 +368,4 @@ def register() -> None:
         _register(endpoint_family_registry.register, RULE_SCHEMA_FAMILY)
     _register(endpoint_registry.register, list_rule_schemas)
     _register(endpoint_registry.register, show_rule_schema)
+    _register(endpoint_registry.register, validate_rule_value)

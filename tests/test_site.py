@@ -48,6 +48,13 @@ def _make_site() -> Path:
         (root / name).symlink_to(_VERSION_ROOT / name)
     for name in ("etc", "var", "tmp", "local"):
         (root / name).mkdir()
+    # Default values and some rulesets read the site's OMD settings.
+    (root / "etc" / "omd").mkdir()
+    (root / "etc" / "omd" / "site.conf").write_text(
+        "CONFIG_CORE='cmc'\nCONFIG_APACHE_TCP_PORT='5000'\nCONFIG_AGENT_RECEIVER_PORT='8000'\n"
+        "CONFIG_AUTOMATION_HELPER='on'\nCONFIG_TMPFS='on'\nCONFIG_MKEVENTD='on'\n"
+        "CONFIG_LIVEPROXYD='on'\nCONFIG_PIGGYBACK_HUB='off'\nCONFIG_TRACE_SEND='off'\n"
+    )
     return root
 
 
@@ -101,7 +108,11 @@ class TestAgainstCheckmk(unittest.TestCase):
         }
         self.assertEqual(
             paths,
-            {"/domain-types/rule_schema/collections/all", "/objects/rule_schema/{ruleset_name}"},
+            {
+                "/domain-types/rule_schema/collections/all",
+                "/objects/rule_schema/{ruleset_name}",
+                "/objects/rule_schema/{ruleset_name}/actions/validate/invoke",
+            },
         )
 
     def test_english_list_has_no_translated_names(self) -> None:
@@ -156,6 +167,52 @@ class TestAgainstCheckmk(unittest.TestCase):
         self.assertLessEqual(set(failures), _THROWAWAY_SITE_FAILURES, failures)
         self.assertLessEqual(set(unknown), _ALLOWED_UNKNOWN, unknown)
         self.assertGreater(sources["form_spec"], 0)
+
+    def test_validate_value_raw(self) -> None:
+        from cmk.gui.watolib.rulespecs import rulespec_registry
+        from rule_schema_api.catalog import ruleset_schema
+        from rule_schema_api.validate import validate_value_raw
+
+        rulespec = rulespec_registry["checkgroup_parameters:filesystem"]
+        example = ruleset_schema("checkgroup_parameters:filesystem")["example_value_raw"]
+        assert isinstance(example, str)
+        self.assertEqual(validate_value_raw(rulespec, example), [])
+        problems = validate_value_raw(rulespec, "{'levels': 'not a tuple'}")
+        self.assertTrue(problems)
+        self.assertEqual(
+            validate_value_raw(rulespec, "{'levels':")[0]["title"],  # type: ignore[index]
+            "value_raw is not a Python literal",
+        )
+
+    def test_examples_pass_the_rules_api_check(self) -> None:
+        """Nearly every example is accepted unchanged by the rules API's own check.
+
+        Excluded: values the throwaway site cannot check (its core is not
+        running, so checks that call it fail) and rulesets that need objects
+        to exist first (host groups, contact groups, ...).
+        """
+        from rule_schema_api.catalog import list_rulesets, ruleset_schema
+
+        accepted, rejected = 0, []
+        for entry in list_rulesets():
+            assert isinstance(entry, dict)
+            name = str(entry["ruleset_name"])
+            try:
+                schema = ruleset_schema(name)
+            except Exception:
+                continue
+            if schema["example_valid"] is True:
+                accepted += 1
+                continue
+            problems = schema["example_problems"]
+            assert isinstance(problems, list) and problems
+            first_problem = problems[0]
+            assert isinstance(first_problem, dict)
+            if "Automation" in str(first_problem.get("detail")):
+                continue
+            rejected.append(name)
+        self.assertGreater(accepted, 800)
+        self.assertLess(len(rejected) / (accepted + len(rejected)), 0.05, rejected)
 
     def test_form_spec_example(self) -> None:
         from rule_schema_api.catalog import ruleset_schema
