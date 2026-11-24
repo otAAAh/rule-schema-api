@@ -26,6 +26,7 @@ registered at runtime. This README is their documentation.
 |---|---|---|
 | GET | `/domain-types/rule_schema/collections/all[?kind=...][&include_deprecated=true]` | every ruleset, optionally filtered by kind |
 | GET | `/objects/rule_schema/{ruleset_name}` | one ruleset's value schema |
+| POST | `/objects/rule_schema/{ruleset_name}/actions/validate/invoke` | check a `value_raw` without creating a rule |
 
 Each collection entry has `ruleset_name`, `kind`, `display_name_en` (English title),
 `group`, `group_display_name_en`, `match_type`, `item_type`, `is_deprecated`
@@ -36,6 +37,24 @@ The object adds the item schema, `schema` (a node tree: `type`, `title`,
 `help`, plus `elements` / `element` / `choices` / `min` / `max` / `unit` ...
 where they apply), `schema_source` (`valuespec` or `form_spec`) and an
 `example_value_raw` to start from.
+
+`example_value_raw` is checked with the rules API's own value check before it
+is returned; `example_valid` says whether `POST /domain-types/rule/collections/all`
+accepts it unchanged. Where Checkmk's default is rejected (an empty user name,
+URL, ...), the example is built from the schema with placeholders instead. If
+neither passes, `example_problems` lists what to fill in - typically
+credentials, or objects that must exist first (host groups, contact groups).
+
+The validate endpoint runs that same check on any value and returns
+`{"valid": ..., "problems": [{"title": ..., "detail": ...}]}`. Nothing is
+created or changed. It checks the value only - not the folder, conditions or
+permissions of a real rule.
+
+The schema shows the constraints the check enforces where it can read them:
+`min_length`/`max_length`, `min_items`/`max_items`, `format` (`url`,
+`email`), `pattern`, and `selection_required`. Validators that are plain
+functions (e.g. "a valid API key") cannot be shown; the validate endpoint
+still checks them.
 
 ```sh
 curl -u cmkadmin:$PASSWORD \
